@@ -22,6 +22,7 @@
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
         .tab-btn {
             background: rgba(245,250,255,0.9);
@@ -165,6 +166,38 @@
             margin-top: 10px;
             border: 1px solid #bfd6ff;
         }
+        textarea {
+            width: 100%;
+            height: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #1e2a3a;
+            color: #e0e0e0;
+            border: 1px solid #3f7bc0;
+            border-radius: 16px;
+            padding: 12px;
+            resize: vertical;
+        }
+        .code-editor {
+            background: #1e2a3a;
+            border-radius: 16px;
+            padding: 4px;
+        }
+        .code-header {
+            background: #0f1a2a;
+            padding: 8px 12px;
+            border-radius: 12px 12px 0 0;
+            color: #aaccff;
+            font-size: 12px;
+        }
+        .result-box {
+            background: #eaf2ff;
+            border-radius: 16px;
+            padding: 12px;
+            margin-top: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -173,6 +206,7 @@
         <button class="tab-btn active" onclick="showTab('research')">Исследование алгоритмов</button>
         <button class="tab-btn" onclick="showTab('manual')">Ручное обучение</button>
         <button class="tab-btn" onclick="showTab('auto')">Автоматическое обучение</button>
+        <button class="tab-btn" onclick="showTab('custom')">Свой алгоритм</button>
     </div>
 
     <!-- Вкладка 1: Исследование алгоритмов -->
@@ -234,7 +268,7 @@
                     <input type="range" id="manHeatSlider" min="0" max="15" value="5" step="0.2">
                 </div>
                 <button class="button" id="manResetBtn">Сброс</button>
-                <button class="button" id="manStepBtn">Шаг обучения</button>
+                <button class="button" id="manStepBtn">Случайный шаг</button>
             </div>
             <div>
                 <canvas id="manCanvas" width="600" height="400"></canvas>
@@ -293,6 +327,47 @@
             </div>
         </div>
     </div>
+
+    <!-- Вкладка 4: Свой алгоритм -->
+    <div id="tab-custom" class="tab-content">
+        <div class="container" style="grid-template-columns: 1fr 1fr;">
+            <div class="panel">
+                <div class="panel-title">Ваш код</div>
+                <div class="code-header">class Controller:</div>
+                <textarea id="customCode" placeholder='class Controller:
+    def __init__(self):
+        self.target_ip = 1.5
+        self.target_beta = 2.4
+    
+    def act(self, state):
+        ip = state[0]
+        beta = state[1]
+        if ip < self.target_ip:
+            return 0
+        elif ip > self.target_ip:
+            return 1
+        elif beta < self.target_beta:
+            return 2
+        elif beta > self.target_beta:
+            return 3
+        else:
+            return 4
+    
+    def reset(self):
+        pass'></textarea>
+                <button class="button" id="runCustomBtn">Запустить тест</button>
+                <div class="result-box" id="customResult"></div>
+            </div>
+            <div>
+                <canvas id="customCanvas" width="600" height="400"></canvas>
+                <div class="metric-grid">
+                    <div class="metric-card"><div>Плотность</div><div class="metric-number" id="customNeVal">0.82</div></div>
+                    <div class="metric-card"><div>Температура</div><div class="metric-number" id="customTeVal">5.3</div></div>
+                </div>
+                <div class="panel"><div>История тока Iₚ</div><div class="plot-container" id="customIpHistory"></div></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -300,11 +375,8 @@
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.getElementById('tab-' + tab).classList.add('active');
         document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-            if((tab === 'research' && i === 0) || (tab === 'manual' && i === 1) || (tab === 'auto' && i === 2)) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
+            let tabs = ['research', 'manual', 'auto', 'custom'];
+            btn.classList.toggle('active', tabs[i] === tab);
         });
     }
 
@@ -441,12 +513,8 @@
     let models = {
         research: new PlasmaModel(),
         manual: new PlasmaModel(),
-        auto: new PlasmaModel()
-    };
-    
-    let agents = {
-        ppo: null,
-        ddpg: null
+        auto: new PlasmaModel(),
+        custom: new PlasmaModel()
     };
     
     let isTraining = false;
@@ -540,35 +608,12 @@
         update();
     }
 
-    async function trainAgent(agent, episodes, episodeCallback) {
-        let modelLocal = new PlasmaModel();
-        for(let ep=0; ep<episodes; ep++) {
-            modelLocal.reset();
-            let totalReward = 0;
-            for(let step=0; step<100; step++) {
-                let state = modelLocal.getState();
-                let action = agent.act(state);
-                modelLocal.step(action);
-                let reward = modelLocal.getReward();
-                totalReward += reward;
-                let nextState = modelLocal.getState();
-                agent.learn(state, action, reward, nextState);
-                agent.updateEpsilon();
-                if(modelLocal.isDisrupted()) break;
-            }
-            if(episodeCallback) await episodeCallback(ep, totalReward);
-            await new Promise(r => setTimeout(r, 5));
-        }
-        let rewards = [];
-        return { stability: 0, avgReward: 0 };
-    }
-
     setupControls(models.research, 'resIpSlider', 'resBetaSlider', 'resHeatSlider', 'resIpDisplay', 'resBetaDisplay', 'resHeatDisplay', 'resCanvas', 'resNeVal', 'resTeVal', 'resIpHistory', 'resResetBtn');
     setupControls(models.manual, 'manIpSlider', 'manBetaSlider', 'manHeatSlider', 'manIpDisplay', 'manBetaDisplay', 'manHeatDisplay', 'manCanvas', 'manNeVal', 'manTeVal', 'manIpHistory', 'manResetBtn');
     setupControls(models.auto, 'autoIpSlider', 'autoBetaSlider', 'autoHeatSlider', 'autoIpDisplay', 'autoBetaDisplay', 'autoHeatDisplay', 'autoCanvas', 'autoNeVal', 'autoTeVal', 'autoIpHistory', 'autoResetBtn');
+    setupControls(models.custom, 'customIpSlider', 'customBetaSlider', 'customHeatSlider', 'customIpDisplay', 'customBetaDisplay', 'customHeatDisplay', 'customCanvas', 'customNeVal', 'customTeVal', 'customIpHistory', 'customResetBtn');
 
     document.getElementById('manStepBtn').addEventListener('click', () => {
-        let state = models.manual.getState();
         let action = Math.floor(Math.random() * 5);
         models.manual.step(action);
         draw(models.manual, 'manCanvas', 'manNeVal', 'manTeVal', 'manIpHistory');
@@ -649,14 +694,8 @@
         }
     });
 
-    document.getElementById('trainPPOBtn').addEventListener('click', async () => {
-        if(isTraining) return;
-        isTraining = true;
-        let statusDiv = document.getElementById('resStatus');
-        statusDiv.className = 'status status-good';
-        statusDiv.innerHTML = 'Обучение PPO (осторожный)...';
-        let agent = new RLAgent("PPO", 0.01, 0.3, 0.1);
-        for(let ep=0; ep<100; ep++) {
+    async function trainAgent(agent, episodes, updateCallback) {
+        for(let ep=0; ep<episodes; ep++) {
             models.research.reset();
             let totalReward = 0;
             for(let step=0; step<100; step++) {
@@ -670,103 +709,9 @@
                 agent.updateEpsilon();
                 if(models.research.isDisrupted()) break;
             }
-            document.getElementById('resEpisode').innerText = ep + 1;
-            document.getElementById('resReward').innerText = totalReward.toFixed(2);
-            await new Promise(r => setTimeout(r, 10));
-        }
-        statusDiv.innerHTML = 'PPO обучен! Стабильность: ~85-92%';
-        isTraining = false;
-    });
-
-    document.getElementById('trainDDPGBtn').addEventListener('click', async () => {
-        if(isTraining) return;
-        isTraining = true;
-        let statusDiv = document.getElementById('resStatus');
-        statusDiv.className = 'status status-good';
-        statusDiv.innerHTML = 'Обучение DDPG (самоуверенный)...';
-        let agent = new RLAgent("DDPG", 0.015, 0.25, 0.15);
-        for(let ep=0; ep<100; ep++) {
-            models.research.reset();
-            let totalReward = 0;
-            for(let step=0; step<100; step++) {
-                let state = models.research.getState();
-                let action = agent.act(state);
-                models.research.step(action);
-                let reward = models.research.getReward();
-                totalReward += reward;
-                let nextState = models.research.getState();
-                agent.learn(state, action, reward, nextState);
-                agent.updateEpsilon();
-                if(models.research.isDisrupted()) break;
-            }
-            document.getElementById('resEpisode').innerText = ep + 1;
-            document.getElementById('resReward').innerText = totalReward.toFixed(2);
-            await new Promise(r => setTimeout(r, 10));
-        }
-        statusDiv.innerHTML = 'DDPG обучен! Стабильность: ~75-85%';
-        isTraining = false;
-    });
-
-    document.getElementById('compareBtn').addEventListener('click', async () => {
-        if(isTraining) return;
-        isTraining = true;
-        let statusDiv = document.getElementById('resStatus');
-        statusDiv.className = 'status status-good';
-        statusDiv.innerHTML = 'Сравнение алгоритмов...';
-        
-        let ppoAgent = new RLAgent("PPO", 0.01, 0.3, 0.1);
-        let ddpgAgent = new RLAgent("DDPG", 0.015, 0.25, 0.15);
-        
-        let ppoRewards = [];
-        let ddpgRewards = [];
-        
-        for(let ep=0; ep<50; ep++) {
-            let m1 = new PlasmaModel();
-            m1.reset();
-            let total1 = 0;
-            for(let s=0; s<100; s++) {
-                let state = m1.getState();
-                let action = ppoAgent.act(state);
-                m1.step(action);
-                total1 += m1.getReward();
-                ppoAgent.learn(state, action, m1.getReward(), m1.getState());
-                if(m1.isDisrupted()) break;
-            }
-            ppoRewards.push(total1);
-            
-            let m2 = new PlasmaModel();
-            m2.reset();
-            let total2 = 0;
-            for(let s=0; s<100; s++) {
-                let state = m2.getState();
-                let action = ddpgAgent.act(state);
-                m2.step(action);
-                total2 += m2.getReward();
-                ddpgAgent.learn(state, action, m2.getReward(), m2.getState());
-                if(m2.isDisrupted()) break;
-            }
-            ddpgRewards.push(total2);
-            
-            document.getElementById('resEpisode').innerText = ep + 1;
+            if(updateCallback) await updateCallback(ep, totalReward);
             await new Promise(r => setTimeout(r, 5));
         }
-        
-        let ppoStability = ppoRewards.filter(r => r > 50).length / 50 * 100;
-        let ddpgStability = ddpgRewards.filter(r => r > 50).length / 50 * 100;
-        let winner = ppoStability > ddpgStability ? "PPO (осторожный)" : "DDPG (самоуверенный)";
-        
-        let resultsDiv = document.getElementById('resResults');
-        resultsDiv.innerHTML = `
-            <div class="winner-row"><strong>РЕЗУЛЬТАТЫ СОРЕВНОВАНИЯ</strong></div>
-            <div class="history-row"><span>PPO (осторожный)</span><span>Стабильность: ${ppoStability.toFixed(1)}%</span><span>Ср.награда: ${(ppoRewards.reduce((a,b)=>a+b,0)/50).toFixed(1)}</span></div>
-            <div class="history-row"><span>DDPG (самоуверенный)</span><span>Стабильность: ${ddpgStability.toFixed(1)}%</span><span>Ср.награда: ${(ddpgRewards.reduce((a,b)=>a+b,0)/50).toFixed(1)}</span></div>
-            <div class="history-row"><strong>Победитель: ${winner}</strong></div>
-            <div class="history-row">PPO лучше классики (PID) в 4 раза</div>
-        `;
-        
-        statusDiv.innerHTML = `Победитель: ${winner}. Стабильность PPO: ${ppoStability.toFixed(1)}%`;
-        isTraining = false;
-    });
-</script>
-</body>
-</html>
+    }
+
+    document.getElementById('trainPPOBtn').addEventListener('click', async () => {
